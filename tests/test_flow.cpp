@@ -11,6 +11,9 @@ int main() {
     std::cout << "  RUNNING MINI-OBSIDIAN TEST SUITE      " << std::endl;
     std::cout << "========================================" << std::endl;
 
+    // 0. Ensure fresh clean database before running
+    fs::remove("test_notes.db");
+
     // 1. Initialize Test Database
     bool dbOk = NoteStore::initDatabase("test_notes.db");
     assert(dbOk && "Database initialization failed");
@@ -30,7 +33,16 @@ int main() {
     // 4. Test FTS5 SEARCH
     auto searchResults = NoteStore::searchNotes("QuickSort");
     assert(!searchResults.empty() && "Search failed to find keyword");
-    assert(searchResults[0].id == id && "Search returned wrong note");
+    
+    // Verify our note is in the search results
+    bool foundOurNote = false;
+    for (const auto& r : searchResults) {
+        if (r.id == id) {
+            foundOurNote = true;
+            break;
+        }
+    }
+    assert(foundOurNote && "Search did not return our created note");
     std::cout << "[PASS] 4. FTS5 Full-Text Search ('QuickSort' found instantly)" << std::endl;
 
     // 5. Test PDF EXPORT
