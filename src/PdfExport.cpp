@@ -63,13 +63,14 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
         fs::remove(absPdf);
     }
 
-    // Completely mute all Chromium stderr and stdout streams with *>$null
+    // Explicitly redirect both Error and Output streams to 'nul' inside Start-Process
     std::string psCmd = 
         "powershell -NoProfile -ExecutionPolicy Bypass -Command \""
         "Start-Process -FilePath '" + browserExe + "' "
         "-ArgumentList '--headless', '--disable-gpu', '--no-sandbox', '--no-pdf-header-footer', "
         "'--print-to-pdf=\\\"" + absPdf + "\\\"', '\\\"" + absHtml + "\\\"' "
-        "-WindowStyle Hidden -Wait *>$null\" >nul 2>&1";
+        "-RedirectStandardOutput 'nul' -RedirectStandardError 'nul' "
+        "-WindowStyle Hidden -Wait\" >nul 2>&1";
 
     system(psCmd.c_str());
 
