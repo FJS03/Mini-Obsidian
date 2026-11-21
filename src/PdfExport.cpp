@@ -4,9 +4,9 @@
 #include <cstdlib>
 #include <iostream>
 #include <filesystem>
+#include <vector>
 #include <thread>
 #include <chrono>
-#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -26,7 +26,6 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
         "  p { font-size: 15px; }\n"
         "  ul { padding-left: 25px; }\n"
         "  li { margin-bottom: 5px; }\n"
-        "  strong { font-weight: 700; color: #000; }\n"
         "</style>\n"
         "</head>\n<body>\n"
         "<h1>" + noteTitle + "</h1>\n"
@@ -39,7 +38,7 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
     htmlFile << printHtml;
     htmlFile.close();
 
-    // 2. Search for Microsoft Edge or Chrome in all standard Windows paths
+    // 2. Locate browser executable
     std::string browserExe = "";
     std::vector<std::string> candidates = {
         "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
@@ -62,28 +61,30 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
     std::string absHtml = fs::absolute(tempHtml).string();
     std::string absPdf = fs::absolute(outputPdfPath).string();
 
-    // Delete any old pdf if it exists
+    // Remove old PDF if it exists
     if (fs::exists(absPdf)) {
         fs::remove(absPdf);
     }
 
-    // 3. Create a clean runner script
-    std::ofstream batFile("print_pdf.bat");
-    if (batFile.is_open()) {
-        batFile << "@echo off\n";
-        batFile << "\"" << browserExe << "\" --headless --disable-gpu --no-pdf-header-footer --print-to-pdf=\"" << absPdf << "\" \"" << absHtml << "\"\n";
-        batFile.close();
+    // 3. Direct PowerShell call with --no-sandbox (bypasses OneDrive & permissions restrictions)
+    std::string psCmd = 
+        "powershell -NoProfile -ExecutionPolicy Bypass -Command \""
+        "Start-Process -FilePath '" + browserExe + "' "
+        "-ArgumentList '--headless', '--disable-gpu', '--no-sandbox', '--no-pdf-header-footer', "
+        "'--print-to-pdf=\\\"" + absPdf + "\\\"', '\\\"" + absHtml + "\\\"' -Wait\" >nul 2>&1";
+
+    system(psCmd.c_str());
+
+    // Give OneDrive a brief 600ms breath to write the file
+    for (int i = 0; i < 5; ++i) {
+        if (fs::exists(absPdf) && fs::file_size(absPdf) > 0) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
-    // Run silently
-    system("print_pdf.bat >nul 2>&1");
-
-    // Wait a brief moment for Windows file flush
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-    // Cleanup helper files
-    fs::remove("print_pdf.bat");
+    // Clean up temporary HTML
     fs::remove(tempHtml);
 
-    return fs::exists(absPdf);
+    return fs::exists(absPdf) && fs::file_size(absPdf) > 0;
 }
