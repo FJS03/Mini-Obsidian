@@ -93,12 +93,9 @@ The automated integration test suite verifies the system across 6 critical check
 
 ## Authors
 
-- **Fakehatul Jannat Samia** (ID: 20261103205) — *Data Layer, Core Architecture, FTS5 Search & PDF Export*
-- **Department of Computer Science and Engineering (CSE)**
-- **Bangladesh University of Business and Technology (BUBT)**
-
+- **FJS03** *Data Layer, Core Architecture, FTS5 Search & PDF Export*
 ---
 
 ## License
-Copyright (c) 2026 Fakehatul Jannat Samia, Jannatul Naima Nazat. All Rights Reserved. 
+Copyright (c) 2026 FJS03 . All Rights Reserved. 
 Usage and distribution require prior written permission from the authors. See [LICENSE](LICENSE) for details.
