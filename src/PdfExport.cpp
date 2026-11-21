@@ -66,16 +66,17 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
         fs::remove(absPdf);
     }
 
-    // 3. Direct PowerShell call with --no-sandbox (bypasses OneDrive & permissions restrictions)
+    // 3. PowerShell call: silences graphics logs with --log-level=3 and runs cleanly
     std::string psCmd = 
         "powershell -NoProfile -ExecutionPolicy Bypass -Command \""
         "Start-Process -FilePath '" + browserExe + "' "
         "-ArgumentList '--headless', '--disable-gpu', '--no-sandbox', '--no-pdf-header-footer', "
+        "'--log-level=3', "
         "'--print-to-pdf=\\\"" + absPdf + "\\\"', '\\\"" + absHtml + "\\\"' -Wait\" >nul 2>&1";
 
     system(psCmd.c_str());
 
-    // Give OneDrive a brief 600ms breath to write the file
+    // Wait briefly for file write
     for (int i = 0; i < 5; ++i) {
         if (fs::exists(absPdf) && fs::file_size(absPdf) > 0) {
             break;
