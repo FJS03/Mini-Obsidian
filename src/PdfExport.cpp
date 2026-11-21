@@ -11,7 +11,6 @@
 namespace fs = std::filesystem;
 
 bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string& markdownText, const std::string& outputPdfPath) {
-    // 1. Convert Markdown to clean HTML
     std::string bodyHtml = PreviewEngine::markdownToHtml(markdownText);
 
     std::string printHtml = 
@@ -38,7 +37,6 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
     htmlFile << printHtml;
     htmlFile.close();
 
-    // 2. Locate browser executable
     std::string browserExe = "";
     std::vector<std::string> candidates = {
         "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
@@ -61,22 +59,20 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
     std::string absHtml = fs::absolute(tempHtml).string();
     std::string absPdf = fs::absolute(outputPdfPath).string();
 
-    // Remove old PDF if it exists
     if (fs::exists(absPdf)) {
         fs::remove(absPdf);
     }
 
-    // 3. PowerShell call: silences graphics logs with --log-level=3 and runs cleanly
+    // Completely mute all Chromium stderr and stdout streams with *>$null
     std::string psCmd = 
         "powershell -NoProfile -ExecutionPolicy Bypass -Command \""
         "Start-Process -FilePath '" + browserExe + "' "
         "-ArgumentList '--headless', '--disable-gpu', '--no-sandbox', '--no-pdf-header-footer', "
-        "'--log-level=3', "
-        "'--print-to-pdf=\\\"" + absPdf + "\\\"', '\\\"" + absHtml + "\\\"' -Wait\" >nul 2>&1";
+        "'--print-to-pdf=\\\"" + absPdf + "\\\"', '\\\"" + absHtml + "\\\"' "
+        "-WindowStyle Hidden -Wait *>$null\" >nul 2>&1";
 
     system(psCmd.c_str());
 
-    // Wait briefly for file write
     for (int i = 0; i < 5; ++i) {
         if (fs::exists(absPdf) && fs::file_size(absPdf) > 0) {
             break;
@@ -84,7 +80,6 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
-    // Clean up temporary HTML
     fs::remove(tempHtml);
 
     return fs::exists(absPdf) && fs::file_size(absPdf) > 0;
