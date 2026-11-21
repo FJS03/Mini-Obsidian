@@ -1,0 +1,1 @@
+Discussed Mini-Obsidian project timeline with team.

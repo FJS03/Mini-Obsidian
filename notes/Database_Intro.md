@@ -1,0 +1,1 @@
+SQLite is an embedded relational database engine.

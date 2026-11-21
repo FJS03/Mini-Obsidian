@@ -1,0 +1,1 @@
+Pointers store memory addresses using the * and & operators.
