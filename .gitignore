@@ -1,22 +1,21 @@
-Build directory
+# Build directory
 build/
 bin/
 obj/
 
-Compiled files
+# Compiled files
 *.exe
 *.o
 *.a
 *.dll
 
-Databases & local user files
-.db
-notes/.md
+# Databases & local user files
+*.db
+notes/*.md
 *.pdf
 preview.html
 temp_print.html
-do_pdf.bat
 
-VS Code settings
+# VS Code settings
 .vscode/
 .idea/

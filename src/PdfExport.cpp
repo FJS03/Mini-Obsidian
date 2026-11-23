@@ -4,13 +4,15 @@
 #include <cstdlib>
 #include <iostream>
 #include <filesystem>
-#include <vector>
 #include <thread>
 #include <chrono>
+#include <vector>
+#include <windows.h>
 
 namespace fs = std::filesystem;
 
 bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string& markdownText, const std::string& outputPdfPath) {
+    // 1. Convert Markdown to clean HTML
     std::string bodyHtml = PreviewEngine::markdownToHtml(markdownText);
 
     std::string printHtml = 
@@ -25,6 +27,7 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
         "  p { font-size: 15px; }\n"
         "  ul { padding-left: 25px; }\n"
         "  li { margin-bottom: 5px; }\n"
+        "  strong { font-weight: 700; color: #000; }\n"
         "</style>\n"
         "</head>\n<body>\n"
         "<h1>" + noteTitle + "</h1>\n"
@@ -37,6 +40,7 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
     htmlFile << printHtml;
     htmlFile.close();
 
+    // 2. Search for Microsoft Edge or Chrome in all standard Windows paths
     std::string browserExe = "";
     std::vector<std::string> candidates = {
         "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
@@ -59,21 +63,48 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
     std::string absHtml = fs::absolute(tempHtml).string();
     std::string absPdf = fs::absolute(outputPdfPath).string();
 
+    // Delete any old pdf if it exists
     if (fs::exists(absPdf)) {
         fs::remove(absPdf);
     }
 
-    // Explicitly redirect both Error and Output streams to 'nul' inside Start-Process
-    std::string psCmd = 
-        "powershell -NoProfile -ExecutionPolicy Bypass -Command \""
-        "Start-Process -FilePath '" + browserExe + "' "
-        "-ArgumentList '--headless', '--disable-gpu', '--no-sandbox', '--no-pdf-header-footer', "
-        "'--print-to-pdf=\\\"" + absPdf + "\\\"', '\\\"" + absHtml + "\\\"' "
-        "-RedirectStandardOutput 'nul' -RedirectStandardError 'nul' "
-        "-WindowStyle Hidden -Wait\" >nul 2>&1";
+    // 3. Inheritable NUL handle setup (silences 100% of Chromium console noise)
+    SECURITY_ATTRIBUTES sa;
+    ZeroMemory(&sa, sizeof(sa));
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.lpSecurityDescriptor = NULL;
+    sa.bInheritHandle = TRUE;
 
-    system(psCmd.c_str());
+    HANDLE hNul = CreateFileA("NUL", GENERIC_READ | GENERIC_WRITE,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE,
+                              &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    si.hStdInput = hNul;
+    si.hStdOutput = hNul;
+    si.hStdError = hNul;
+    ZeroMemory(&pi, sizeof(pi));
+
+    std::string cmdArgs = "\"" + browserExe + "\" --headless --disable-gpu --no-sandbox --no-pdf-header-footer --log-level=3 --silent --disable-logging --print-to-pdf=\"" + absPdf + "\" \"" + absHtml + "\"";
+    std::vector<char> cmdVec(cmdArgs.begin(), cmdArgs.end());
+    cmdVec.push_back('\0');
+
+    if (CreateProcessA(NULL, cmdVec.data(), NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+        WaitForSingleObject(pi.hProcess, 10000);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+    }
+
+    if (hNul != INVALID_HANDLE_VALUE) {
+        CloseHandle(hNul);
+    }
+
+    // Wait up to 1 second for Windows file flush
     for (int i = 0; i < 5; ++i) {
         if (fs::exists(absPdf) && fs::file_size(absPdf) > 0) {
             break;
@@ -81,6 +112,7 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
+    // Cleanup temporary HTML file
     fs::remove(tempHtml);
 
     return fs::exists(absPdf) && fs::file_size(absPdf) > 0;
