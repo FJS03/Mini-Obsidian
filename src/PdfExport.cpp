@@ -7,9 +7,26 @@
 #include <thread>
 #include <chrono>
 #include <vector>
+#include <algorithm>
 #include <windows.h>
 
 namespace fs = std::filesystem;
+
+static bool fileHasData(const std::string& path) {
+    std::error_code ec;
+    auto size = fs::file_size(path, ec);
+    return !ec && size > 0;
+}
+
+// Windows only accepts "C:/dir/file.html" as a URL, never "C:\dir\file.html".
+static std::string toFileUrl(const std::string& windowsPath) {
+    std::string url = windowsPath;
+    std::replace(url.begin(), url.end(), '\\', '/');
+    if (url.size() > 1 && url[1] == ':') {
+        url = "file:///" + url;
+    }
+    return url;
+}
 
 bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string& markdownText, const std::string& outputPdfPath) {
     // 1. Convert Markdown to clean HTML
@@ -34,9 +51,17 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
         + bodyHtml +
         "\n</body>\n</html>";
 
-    std::string tempHtml = "temp_print.html";
-    std::ofstream htmlFile(tempHtml);
-    if (!htmlFile.is_open()) return false;
+    // Scratch files go to the system temp folder so the working directory does not matter.
+    std::string stamp = std::to_string(GetCurrentProcessId());
+    std::string absHtml = (fs::temp_directory_path() / ("mini_obsidian_" + stamp + ".html")).string();
+    std::string profileDir = (fs::temp_directory_path() / ("mini_obsidian_profile_" + stamp)).string();
+    std::string absPdf = fs::absolute(outputPdfPath).string();
+
+    std::ofstream htmlFile(absHtml);
+    if (!htmlFile.is_open()) {
+        std::cerr << "[PDF] Cannot write temporary HTML file: " << absHtml << std::endl;
+        return false;
+    }
     htmlFile << printHtml;
     htmlFile.close();
 
@@ -68,13 +93,14 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
             browserExe = searchBuf;
         } else if (SearchPathA(NULL, "chrome.exe", NULL, MAX_PATH, searchBuf, NULL)) {
             browserExe = searchBuf;
-        } else {
-            browserExe = "msedge.exe";
         }
     }
 
-    std::string absHtml = fs::absolute(tempHtml).string();
-    std::string absPdf = fs::absolute(outputPdfPath).string();
+    if (browserExe.empty()) {
+        std::cerr << "[PDF] No Edge or Chrome found. Install one, or add it to PATH." << std::endl;
+        fs::remove(absHtml);
+        return false;
+    }
 
     // Delete any old pdf if it exists
     if (fs::exists(absPdf)) {
@@ -103,30 +129,44 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
     si.hStdError = hNul;
     ZeroMemory(&pi, sizeof(pi));
 
-    std::string cmdArgs = "\"" + browserExe + "\" --headless --disable-gpu --no-sandbox --no-pdf-header-footer --log-level=3 --silent --disable-logging --print-to-pdf=\"" + absPdf + "\" \"" + absHtml + "\"";
+    // A dedicated --user-data-dir means a browser the user already has open cannot
+    // swallow this headless run, which would otherwise exit without writing the PDF.
+    std::string cmdArgs =
+        "\"" + browserExe + "\" --headless --disable-gpu --no-sandbox --no-first-run"
+        " --no-default-browser-check --no-pdf-header-footer --log-level=3 --silent --disable-logging"
+        " --user-data-dir=\"" + profileDir + "\""
+        " --print-to-pdf=\"" + absPdf + "\" \"" + toFileUrl(absHtml) + "\"";
     std::vector<char> cmdVec(cmdArgs.begin(), cmdArgs.end());
     cmdVec.push_back('\0');
 
-    if (CreateProcessA(NULL, cmdVec.data(), NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-        WaitForSingleObject(pi.hProcess, 15000);
+    bool started = CreateProcessA(browserExe.c_str(), cmdVec.data(), NULL, NULL, TRUE,
+                                  CREATE_NO_WINDOW, NULL, NULL, &si, &pi) != 0;
+    if (started) {
+        WaitForSingleObject(pi.hProcess, 20000);
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
+    } else {
+        std::cerr << "[PDF] Cannot start browser: " << browserExe
+                  << " (error " << GetLastError() << ")" << std::endl;
     }
 
     if (hNul != INVALID_HANDLE_VALUE) {
         CloseHandle(hNul);
     }
 
-    // Wait up to 2 seconds for Windows file flush
-    for (int i = 0; i < 10; ++i) {
-        if (fs::exists(absPdf) && fs::file_size(absPdf) > 0) {
-            break;
-        }
+    // 4. Give Windows a moment to flush the file to disk
+    for (int i = 0; i < 25 && !fileHasData(absPdf); ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
-    // Cleanup temporary HTML file
-    fs::remove(tempHtml);
+    // Cleanup scratch files
+    fs::remove(absHtml);
+    std::error_code ec;
+    fs::remove_all(profileDir, ec);
 
-    return fs::exists(absPdf) && fs::file_size(absPdf) > 0;
+    if (!fileHasData(absPdf)) {
+        std::cerr << "[PDF] Browser did not write: " << absPdf << std::endl;
+        return false;
+    }
+    return true;
 }
