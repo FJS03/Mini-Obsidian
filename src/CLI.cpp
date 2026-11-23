@@ -177,7 +177,14 @@ void CLI::handlePdfExport() {
         return;
     }
 
-    std::string pdfFilename = note.title + ".pdf";
+    // A note titled "Q: ideas?" must not become an illegal Windows filename.
+    std::string pdfName = note.title;
+    for (char& c : pdfName) {
+        if ((unsigned char)c < 32 || std::string("<>:\"/\\|?*").find(c) != std::string::npos) c = '_';
+    }
+    if (pdfName.empty()) pdfName = "note";
+
+    std::string pdfFilename = pdfName + ".pdf";
     std::cout << "Exporting to " << pdfFilename << "..." << std::endl;
 
     if (PdfExport::exportNoteToPdf(note.title, note.content, pdfFilename)) {
