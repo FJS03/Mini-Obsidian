@@ -49,6 +49,12 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
         "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
     };
 
+    char* localApp = std::getenv("LOCALAPPDATA");
+    if (localApp) {
+        candidates.push_back(std::string(localApp) + "\\Microsoft\\Edge\\Application\\msedge.exe");
+        candidates.push_back(std::string(localApp) + "\\Google\\Chrome\\Application\\chrome.exe");
+    }
+
     for (const auto& path : candidates) {
         if (fs::exists(path)) {
             browserExe = path;
@@ -57,7 +63,14 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
     }
 
     if (browserExe.empty()) {
-        browserExe = "msedge.exe";
+        char searchBuf[MAX_PATH];
+        if (SearchPathA(NULL, "msedge.exe", NULL, MAX_PATH, searchBuf, NULL)) {
+            browserExe = searchBuf;
+        } else if (SearchPathA(NULL, "chrome.exe", NULL, MAX_PATH, searchBuf, NULL)) {
+            browserExe = searchBuf;
+        } else {
+            browserExe = "msedge.exe";
+        }
     }
 
     std::string absHtml = fs::absolute(tempHtml).string();
@@ -95,7 +108,7 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
     cmdVec.push_back('\0');
 
     if (CreateProcessA(NULL, cmdVec.data(), NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-        WaitForSingleObject(pi.hProcess, 10000);
+        WaitForSingleObject(pi.hProcess, 15000);
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
     }
@@ -104,8 +117,8 @@ bool PdfExport::exportNoteToPdf(const std::string& noteTitle, const std::string&
         CloseHandle(hNul);
     }
 
-    // Wait up to 1 second for Windows file flush
-    for (int i = 0; i < 5; ++i) {
+    // Wait up to 2 seconds for Windows file flush
+    for (int i = 0; i < 10; ++i) {
         if (fs::exists(absPdf) && fs::file_size(absPdf) > 0) {
             break;
         }
